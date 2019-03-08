@@ -12,6 +12,7 @@ public class CustomCharacterController : MonoBehaviour
     public List<Collider> m_ragdollColliders = new List<Collider>();
     public CameraController m_cameraController = null;
     public GameObject m_hips = null;
+    public bool m_ragdollJump;
 
     private Animator m_animator = null;
     private CapsuleCollider m_collider = null;
@@ -56,14 +57,16 @@ public class CustomCharacterController : MonoBehaviour
                 m_velocity += new Vector3(0, m_jumpSpeed, 0);
                 m_animator.SetTrigger("Jump");
 
-                RagdollOn = true;
-
-                m_velocity = Vector3.zero;
+                if (m_ragdollJump)
+                {
+                    RagdollOn = true;
+                    m_velocity = Vector3.zero;
+                }
             }
 
             if (!m_grounded)
             {
-                m_velocity += Physics.gravity * Time.deltaTime;
+                m_velocity += Physics.gravity * Time.deltaTime * m_friction * 0.5f;
             }
 
             if (Input.GetKeyDown(KeyCode.LeftControl))
@@ -105,11 +108,25 @@ public class CustomCharacterController : MonoBehaviour
             {
                 transform.rotation = Quaternion.LookRotation(lookVector.normalized);
             }
-            m_animator.SetFloat("Speed", m_velocity.magnitude);
+            m_animator.SetFloat("Speed", new Vector3(m_velocity.x, 0, m_velocity.z).magnitude);
 
-            if (movementVector.magnitude == 0 && m_velocity.magnitude <= 0.1)
+            if (movementVector.magnitude == 0 && m_grounded && m_velocity.magnitude <= 0.1)
             {
                 m_velocity = Vector3.zero;
+            }
+
+            if (Input.GetMouseButtonDown(0))
+            {
+                RaycastHit raycast;
+                Ray ray = m_cameraController.DirectionRay;
+                if (Physics.Raycast(ray, out raycast, 999, LayerMask.NameToLayer("Player")))
+                {
+                    Rigidbody rb = raycast.rigidbody;
+                    if (rb != null)
+                    {
+                        rb.AddForce((ray.direction * 2000) * rb.mass);
+                    }
+                }
             }
         }
         else
@@ -127,7 +144,8 @@ public class CustomCharacterController : MonoBehaviour
         {
             bool colliderBelow = false;
 
-            Collider[] collisions = Physics.OverlapCapsule(m_collider.center + new Vector3(0, m_collider.height / 2, 0) + transform.position, m_collider.center - new Vector3(0, m_collider.height / 2, 0) + transform.position, m_collider.radius, -1, QueryTriggerInteraction.Ignore);
+            float halfHeight = (m_collider.height / 2);
+            Collider[] collisions = Physics.OverlapCapsule(m_collider.center + new Vector3(0, halfHeight, 0) + transform.position, m_collider.center - new Vector3(0, halfHeight, 0) + transform.position, m_collider.radius, LayerMask.NameToLayer("Player"), QueryTriggerInteraction.Ignore);
 
             foreach (Collider c in collisions)
             {
@@ -136,17 +154,31 @@ public class CustomCharacterController : MonoBehaviour
 
                 Vector3 direction;
                 float distance;
-                if (Physics.ComputePenetration(m_collider, transform.position, transform.rotation, c, c.transform.position, c.transform.rotation, out direction, out distance))
+                if (Physics.ComputePenetration(m_collider, transform.position, Quaternion.Euler(0, 0, 0), c, c.transform.position, c.transform.rotation, out direction, out distance))
                 {
                     Vector3 penetration = direction * distance;
                     Vector3 velocityProjected = Vector3.Project(m_velocity, -direction);
 
-                    transform.position += penetration;
-                    m_velocity -= velocityProjected;
-                }
-                if (Vector3.Dot(direction, Vector3.up) > 0)
-                {
-                    colliderBelow = true;
+                    Rigidbody rb = c.GetComponent<Rigidbody>();
+
+                    if (rb != null && !rb.isKinematic)
+                    {
+                        transform.position += penetration * 0.5f;
+                        rb.MovePosition(rb.position - penetration * 0.5f);
+                        //m_velocity -= velocityProjected;
+                    }
+                    else
+                    {
+                        transform.position += penetration;
+                        m_velocity -= velocityProjected;
+                    }
+                    //transform.position += penetration;
+                    //m_velocity -= velocityProjected;
+
+                    if (Vector3.Dot(direction, Vector3.up) > 0)
+                    {
+                        colliderBelow = true;
+                    }
                 }
             }
 
